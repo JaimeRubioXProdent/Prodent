@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="es-CO">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex, nofollow">
+<meta name="theme-color" content="#241d1a">
+<link rel="icon" type="image/png" href="logo.png">
+<title>Panel · Prodent</title>
+<style>
+*{box-sizing:border-box}
+body{font-family:Georgia,'Playfair Display',serif;background:#faf7f2;color:#241d1a;margin:0;padding:20px 16px 60px}
+.box{max-width:600px;margin:0 auto 20px;background:#fff;border:1px solid #eae3d7;border-radius:20px;padding:26px}
+h1{font-size:24px;margin:0 0 14px}
+h2{font-size:19px;margin:0 0 12px}
+label{display:block;font-size:14px;margin:14px 0 6px}
+input,textarea{width:100%;padding:12px;border:1px solid #eae3d7;border-radius:12px;font:inherit;font-size:16px;background:#fff}
+textarea{min-height:120px;resize:vertical}
+button{background:#241d1a;color:#fff;border:0;border-radius:999px;padding:13px 24px;font:inherit;font-size:15px;cursor:pointer;margin-top:16px}
+button:disabled{opacity:.5;cursor:wait}
+button.sec{background:#8f6743}
+button.danger{background:#a8322b}
+button.ghost{background:#f4efe7;color:#241d1a;border:1px solid #eae3d7}
+.msg{margin-top:12px;font-size:14px;min-height:20px}
+.ok{color:#2c593f}.err{color:#a8322b}
+.hidden{display:none}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.preview{margin-top:10px;max-width:100%;border-radius:12px;display:none}
+.item{display:flex;gap:12px;align-items:center;padding:12px 0;border-bottom:1px solid #eae3d7}
+.item:last-child{border-bottom:0}
+.item img{width:56px;height:56px;object-fit:cover;border-radius:10px;background:#ede5da;flex-shrink:0}
+.item .info{flex:1;min-width:0}
+.item .t{font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.item .d{font-size:12.5px;color:#6e655c}
+.item .acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.item button{margin:0;padding:7px 12px;font-size:12.5px}
+.tag{display:inline-block;font-size:11px;background:#f2e6e1;color:#925341;border-radius:999px;padding:2px 8px;margin-left:6px}
+.top{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.top button{margin:0;padding:8px 16px;font-size:13px}
+</style>
+</head>
+<body>
+
+<div class="box" id="login">
+  <h1>Acceso Prodent</h1>
+  <label for="email">Correo</label>
+  <input id="email" type="email" autocomplete="username" inputmode="email">
+  <label for="pass">Contraseña</label>
+  <input id="pass" type="password" autocomplete="current-password">
+  <button id="btn-login">Entrar</button>
+  <p class="msg err" id="login-msg"></p>
+</div>
+
+<div id="panel" class="hidden">
+  <div class="box">
+    <div class="top">
+      <h1 id="form-title" style="margin:0">Nueva novedad</h1>
+      <button class="sec" id="btn-out">Cerrar sesión</button>
+    </div>
+
+    <label for="titulo">Título</label>
+    <input id="titulo" maxlength="80" placeholder="Ej: Luna recuperó su sonrisa">
+    <label for="fecha">Fecha</label>
+    <input id="fecha" type="date">
+    <label for="desc">Descripción</label>
+    <textarea id="desc" maxlength="600" placeholder="Cuenta el caso del día..."></textarea>
+    <label for="foto">Foto (se comprime sola)</label>
+    <input id="foto" type="file" accept="image/*">
+    <img id="preview" class="preview" alt="Vista previa">
+
+    <div class="row">
+      <button id="btn-pub">Publicar</button>
+      <button id="btn-cancel" class="ghost hidden">Cancelar edición</button>
+    </div>
+    <p class="msg" id="msg"></p>
+  </div>
+
+  <div class="box">
+    <h2>Publicadas</h2>
+    <div id="lista"></div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+<script>
+/* Configuración compartida de Supabase (landing + admin).
+   La ANON KEY es pública por diseño; la seguridad la dan las políticas RLS.
+   NUNCA pongas aquí la service_role key. */
+(function () {
+  var SUPABASE_URL = 'https://sjdnfhfnmzfdmdyptjrx.supabase.co';
+  var SUPABASE_ANON_KEY = 'sb_publishable_DSL2VoSRjnXKV4VNV4h7-g_DaP57sKw';
+
+  window.PRODENT_SB = window.supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    auth: {
+      persistSession: true,        // guarda la sesión en el dispositivo
+      autoRefreshToken: true,      // renueva el token solo, sin pedir login
+      detectSessionInUrl: false,
+      storage: window.localStorage,
+      storageKey: 'prodent-owner-auth'
+    }
+  });
+})();
+
+</script>
+<script>
+(function () {
+  var sb = window.PRODENT_SB;
+  var $ = function (id) { return document.getElementById(id); };
+  var editing = null;   // objeto de la novedad en edición
+  var cache = {};
+
+  // Pide al navegador no borrar el almacenamiento (ayuda a que la sesión sea permanente)
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(function () {});
+
+  function today() {
+    var d = new Date();
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
+  }
+  function setMsg(t, cls) { var m = $('msg'); m.textContent = t || ''; m.className = 'msg ' + (cls || ''); }
+
+  // ---- Compresión de imagen (máx 1400px, JPEG 0.82) ----
+  function compress(file) {
+    return new Promise(function (resolve, reject) {
+      var img = new Image(), url = URL.createObjectURL(file);
+      img.onload = function () {
+        var max = 1400, w = img.width, h = img.height;
+        if (w > max || h > max) { var r = Math.min(max / w, max / h); w = Math.round(w * r); h = Math.round(h * r); }
+        var c = document.createElement('canvas'); c.width = w; c.height = h;
+        c.getContext('2d').drawImage(img, 0, 0, w, h);
+        URL.revokeObjectURL(url);
+        c.toBlob(function (b) { b ? resolve(b) : reject(new Error('No se pudo comprimir')); }, 'image/jpeg', 0.82);
+      };
+      img.onerror = function () { URL.revokeObjectURL(url); reject(new Error('Imagen no válida')); };
+      img.src = url;
+    });
+  }
+
+  $('foto').addEventListener('change', function () {
+    var f = this.files[0], p = $('preview');
+    if (!f) { p.style.display = 'none'; return; }
+    p.src = URL.createObjectURL(f); p.style.display = 'block';
+  });
+
+  // ---- Sesión ----
+  async function check() {
+    var s = await sb.auth.getSession();
+    var on = !!(s.data && s.data.session);
+    $('login').classList.toggle('hidden', on);
+    $('panel').classList.toggle('hidden', !on);
+    if (on) { if (!editing) $('fecha').value = today(); cargar(); }
+  }
+  // Reacciona a renovaciones/cierres de sesión
+  sb.auth.onAuthStateChange(function (ev) { if (ev === 'SIGNED_OUT') check(); });
+
+  $('btn-login').onclick = async function () {
+    var b = this; b.disabled = true; $('login-msg').textContent = '';
+    var r = await sb.auth.signInWithPassword({ email: $('email').value.trim(), password: $('pass').value });
+    if (r.error) $('login-msg').textContent = 'Correo o contraseña incorrectos';
+    b.disabled = false; check();
+  };
+  $('pass').addEventListener('keydown', function (e) { if (e.key === 'Enter') $('btn-login').click(); });
+  $('btn-out').onclick = async function () {
+    if (!confirm('¿Cerrar sesión en este dispositivo?')) return;
+    await sb.auth.signOut(); check();
+  };
+
+  // ---- Formulario ----
+  function resetForm() {
+    editing = null;
+    $('titulo').value = ''; $('desc').value = ''; $('foto').value = '';
+    $('preview').style.display = 'none'; $('fecha').value = today();
+    $('form-title').textContent = 'Nueva novedad';
+    $('btn-pub').textContent = 'Publicar';
+    $('btn-cancel').classList.add('hidden');
+  }
+  $('btn-cancel').onclick = function () { resetForm(); setMsg(''); };
+
+  function fileName(url) { return url ? decodeURIComponent(url.split('/').pop().split('?')[0]) : null; }
+
+  $('btn-pub').onclick = async function () {
+    var btn = this;
+    var titulo = $('titulo').value.trim(), desc = $('desc').value.trim();
+    if (!titulo || !desc) { setMsg('Falta el título o la descripción', 'err'); return; }
+    btn.disabled = true; setMsg('Guardando…');
+    try {
+      var url = editing ? editing.imagen_url : null;
+      var file = $('foto').files[0];
+      if (file) {
+        var blob = await compress(file);
+        var path = Date.now() + '-' + Math.random().toString(36).slice(2, 8) + '.jpg';
+        var up = await sb.storage.from('novedades').upload(path, blob, { cacheControl: '31536000', contentType: 'image/jpeg' });
+        if (up.error) throw up.error;
+        var newUrl = sb.storage.from('novedades').getPublicUrl(path).data.publicUrl;
+        if (editing && editing.imagen_url) await sb.storage.from('novedades').remove([fileName(editing.imagen_url)]);
+        url = newUrl;
+      }
+      var payload = { titulo: titulo, descripcion: desc, fecha: $('fecha').value || today(), imagen_url: url };
+      var r = editing
+        ? await sb.from('novedades').update(payload).eq('id', editing.id)
+        : await sb.from('novedades').insert(payload);
+      if (r.error) throw r.error;
+      setMsg(editing ? '¡Cambios guardados!' : '¡Publicado!', 'ok');
+      resetForm(); cargar();
+    } catch (e) { setMsg('Error: ' + (e.message || e), 'err'); }
+    btn.disabled = false;
+  };
+
+  // ---- Lista ----
+  async function cargar() {
+    var r = await sb.from('novedades').select('*').order('fecha', { ascending: false }).order('created_at', { ascending: false }).limit(50);
+    var box = $('lista'); box.innerHTML = ''; cache = {};
+    if (r.error) { box.textContent = 'No se pudo cargar: ' + r.error.message; return; }
+    if (!r.data.length) { box.textContent = 'Aún no hay publicaciones.'; return; }
+    r.data.forEach(function (n) {
+      cache[n.id] = n;
+      var row = document.createElement('div'); row.className = 'item';
+      var img = document.createElement('img'); if (n.imagen_url) img.src = n.imagen_url; img.alt = '';
+      var info = document.createElement('div'); info.className = 'info';
+      var t = document.createElement('div'); t.className = 't'; t.textContent = n.titulo;
+      if (!n.publicado) { var tg = document.createElement('span'); tg.className = 'tag'; tg.textContent = 'Oculta'; t.appendChild(tg); }
+      var d = document.createElement('div'); d.className = 'd'; d.textContent = n.fecha;
+      info.appendChild(t); info.appendChild(d);
+      var acts = document.createElement('div'); acts.className = 'acts';
+      acts.appendChild(mk('Editar', 'ghost', function () { editar(n.id); }));
+      acts.appendChild(mk(n.publicado ? 'Ocultar' : 'Mostrar', 'ghost', async function () {
+        await sb.from('novedades').update({ publicado: !n.publicado }).eq('id', n.id); cargar();
+      }));
+      acts.appendChild(mk('Borrar', 'danger', async function () {
+        if (!confirm('¿Borrar esta novedad?')) return;
+        if (n.imagen_url) await sb.storage.from('novedades').remove([fileName(n.imagen_url)]);
+        await sb.from('novedades').delete().eq('id', n.id);
+        if (editing && editing.id === n.id) resetForm();
+        cargar();
+      }));
+      row.appendChild(img); row.appendChild(info); row.appendChild(acts);
+      box.appendChild(row);
+    });
+  }
+  function mk(txt, cls, fn) { var b = document.createElement('button'); b.textContent = txt; b.className = cls; b.onclick = fn; return b; }
+
+  function editar(id) {
+    var n = cache[id]; if (!n) return;
+    editing = n;
+    $('titulo').value = n.titulo; $('desc').value = n.descripcion; $('fecha').value = n.fecha; $('foto').value = '';
+    if (n.imagen_url) { $('preview').src = n.imagen_url; $('preview').style.display = 'block'; } else $('preview').style.display = 'none';
+    $('form-title').textContent = 'Editando novedad';
+    $('btn-pub').textContent = 'Guardar cambios';
+    $('btn-cancel').classList.remove('hidden');
+    setMsg('Si no eliges foto nueva, se conserva la actual.');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  check();
+})();
+</script>
+</body>
+</html>
